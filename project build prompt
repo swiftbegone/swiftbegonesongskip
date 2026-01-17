@@ -1,0 +1,126 @@
+You are a senior Electron developer. Build a complete, working cross-platform Electron tray/menu-bar app named "SwiftBeGone" for macOS + Windows.
+
+Goal
+- SwiftBeGone runs in the background (tray on Windows, menu bar on macOS).
+- It detects the currently playing artist, and if it matches the blocked list (default includes "Taylor Swift"), it automatically skips to the next track.
+- MVP is “skip only” (no mute).
+
+Branding / Identity (must be consistent everywhere)
+- Product name: SwiftBeGone
+- AppId / Bundle ID: com.swiftbegone.app
+- Tooltip: SwiftBeGone
+- Repo link: https://github.com/swiftbegone/swiftbegonesongskip
+- Website/help link: https://swiftbegone.xyz
+- Donate link: https://buymeacoffee.com/swiftbegone?new=1
+- Extension placeholder link: https://swiftbegone.xyz/#extension
+
+Scope (MVP)
+- No audio fingerprinting. Do NOT record or capture mic/system audio.
+- No big UI window. Tray/menu-bar only.
+- Support:
+  1) Spotify (macOS + Windows) via Spotify Web API + OAuth
+  2) Apple Music (macOS only) via AppleScript controlling the Music app
+- On Windows, if Spotify is not connected/playing, just show Idle (we will add Windows media session later).
+
+Tray/Menu UI requirements
+- Tray/menu context menu must show:
+  - A header line: "SwiftBeGone — ON" or "SwiftBeGone — OFF" (disabled, informational)
+  - A Status line (disabled, informational) that updates continuously:
+    - When Spotify is playing: "Spotify: <Artists> — <Track>"
+    - On macOS, when Spotify is not playing and Apple Music is playing: "Apple Music: <Artist> — <Track>"
+    - Otherwise: "Idle"
+  - Toggle item: Enable/Disable (when OFF, app does not skip)
+  - Spotify item: "Connect Spotify…" (only shown/enabled when not connected). When connected, show "Spotify: Connected" (disabled).
+  - Links:
+    - "Help / Setup…" opens https://swiftbegone.xyz
+    - "Install Browser Extension…" opens https://swiftbegone.xyz/#extension
+    - "Donate…" opens https://buymeacoffee.com/swiftbegone?new=1
+    - "GitHub…" opens https://github.com/swiftbegone/swiftbegonesongskip
+  - Quit
+
+Persistence / settings
+- Use electron-store for persistence.
+- Store keys:
+  - enabled: boolean (default true)
+  - blocked_artists: array of strings (default ["Taylor Swift"])
+  - spotify_client_id: string
+  - spotify_client_secret: string
+  - spotify_refresh_token: string
+  - spotify_access_token: string
+  - spotify_token_expires_at: number (ms epoch)
+- Provide helper functions:
+  - normalizeName(str) => trimmed + lowercase
+  - sanitizeBlockedList(list) => removes blanks, dedupes
+  - isBlockedArtist(artistName, blockedArtists) => exact match using normalizeName
+
+Matching rules
+- Case-insensitive, trimmed EXACT match against blocked_artists entries.
+- For Spotify, if ANY artist on the track matches blocked list => skip.
+- Cooldown: after any skip, do not skip again for 2.5 seconds (avoid repeated skips).
+
+Polling rules
+- Poll every ~1.0–1.2 seconds.
+- Priority order:
+  1) If Spotify connected AND Spotify is currently playing -> use Spotify now playing and skip via Spotify API if blocked.
+  2) Else if macOS and Apple Music (Music app) is running AND playing -> use AppleScript now playing and skip via AppleScript if blocked.
+  3) Else status is Idle.
+- If app is disabled, do not skip; status can still update or show Disabled (either is fine, but do not skip).
+
+Spotify integration requirements
+- Implement Spotify OAuth Authorization Code flow with local callback server:
+  - Callback server binds to 127.0.0.1 port 24863
+  - Redirect URI must be exactly: http://127.0.0.1:24863/callback
+- Scopes required:
+  - user-read-playback-state
+  - user-modify-playback-state
+- Use the following endpoints:
+  - GET https://api.spotify.com/v1/me/player/currently-playing
+  - POST https://api.spotify.com/v1/me/player/next
+- Refresh access tokens automatically using refresh token.
+- Error handling:
+  - If Spotify returns 204 (nothing playing), treat as not playing.
+  - If token refresh fails, status should show a short error but app should continue running.
+
+Apple Music (macOS) integration requirements
+- Use AppleScript via osascript.
+- Read now playing artist + track:
+  - If Music is running and player state is playing -> get artist of current track and name of current track.
+  - Else treat as not playing.
+- Skip:
+  - tell application "Music" to next track
+- Expect macOS to prompt for automation permission; handle errors gracefully in status.
+
+Project / output requirements
+- Provide a full repo layout with these files:
+  - package.json with scripts:
+    - "dev": "electron ."
+    - "dist": "electron-builder"
+  - src/main.js (Electron main process, tray/menu, polling)
+  - src/spotify.js (OAuth helpers, API calls, refresh)
+  - src/oauthServer.js (express server for callback)
+  - src/appleMusic.js (osascript helper)
+  - src/blocklist.js (normalize/sanitize/isBlocked)
+  - assets/icon.ico for Windows (placeholder ok)
+  - assets/iconTemplate.png for macOS (placeholder ok)
+- Use electron-builder config in package.json:
+  - appId: com.swiftbegone.app
+  - productName: SwiftBeGone
+- Include clear setup instructions in a README:
+  - How to install dependencies and run in dev
+  - How to create a Spotify developer app
+  - Where to paste spotify_client_id/spotify_client_secret for MVP (can be stored via electron-store defaults or environment variables)
+  - How to build installers with npm run dist
+
+Important constraints
+- Do NOT build a large renderer UI window for MVP.
+- Do NOT omit required files.
+- Return the complete file tree first, then the full contents of each file.
+
+Acceptance tests (must pass logically)
+1) If SwiftBeGone is OFF, it never skips any track.
+2) If Spotify is playing a track with artist "Taylor Swift", SwiftBeGone calls Spotify Next Track and waits for cooldown.
+3) On macOS, if Music app is playing "Taylor Swift" and Spotify is not playing, SwiftBeGone runs AppleScript next track.
+4) Tray status accurately updates with the current source and now playing info.
+
+Deliverable format
+- Output the project as multiple files with correct code. Do not include pseudocode. Use real code with basic error handling and comments.
