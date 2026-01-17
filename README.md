@@ -11,8 +11,8 @@ It works across major players and browser services (via an upcoming extension), 
 ✨ Features
 	•	🎵 Automatically skip blocked artists
 Default blocklist: ["Taylor Swift"] — customizable in future versions.
-	•	🟢 Spotify support (macOS + Windows)
-Uses the official Spotify Web API to read now-playing metadata and send “Next Track”.
+	•	🟢 Spotify support (macOS + Windows) — ⚠️ Temporarily Unavailable
+Spotify has temporarily halted new app registrations in their developer portal. Support will be restored once registrations reopen. Existing connected accounts will continue to work.
 	•	🍎 Apple Music support (macOS)
 Detects and controls the Music app using safe AppleScript automation.
 	•	🖥️ Tray-only UI
@@ -41,13 +41,59 @@ Build installers:
 
 npm run dist
 
+⸻
+
+🔑 Spotify Setup — ⚠️ Temporarily Unavailable
+
+**Update:** Spotify has temporarily halted new app registrations in their developer portal. New users cannot set up Spotify integration at this time.
+
+**For existing users with connected accounts:** Your Spotify integration will continue to work. The app will still detect and skip tracks from Spotify if you're already connected.
+
+**When Spotify reopens registrations:** Follow these steps to set up Spotify support:
+
+1. **Create a Spotify App:**
+   - Go to https://developer.spotify.com/dashboard
+   - Log in with your Spotify account
+   - Click "Create app"
+   - Fill in:
+     - App name: `SwiftBeGone` (or any name)
+     - App description: `Auto-skip blocked artists`
+     - Redirect URI: `http://127.0.0.1:24863/callback`
+     - Check "I understand and agree to Spotify's Developer Terms of Service"
+   - Click "Save"
+   - Click "View client secret" and copy both Client ID and Client Secret
+
+2. **Configure Credentials:**
+   
+   **Option A: Environment Variables (Recommended for development)**
+   ```bash
+   export SPOTIFY_CLIENT_ID="your_client_id_here"
+   export SPOTIFY_CLIENT_SECRET="your_client_secret_here"
+   npm run dev
+   ```
+   
+   **Option B: Store in electron-store (For built apps)**
+   - The app will prompt you to enter credentials on first run, OR
+   - You can manually set them in the app's config file (location varies by OS)
+   - macOS: `~/Library/Application Support/swiftbegone/config.json`
+   - Windows: `%APPDATA%\swiftbegone\config.json`
+
+3. **Connect Spotify:**
+   - Run the app: `npm run dev`
+   - Right-click the tray/menu bar icon
+   - Click "Connect Spotify…"
+   - Approve the permissions in your browser
+   - The app will now automatically skip blocked artists!
+
+**Note:** The redirect URI must be exactly `http://127.0.0.1:24863/callback` in your Spotify app settings.
+
 
 ⸻
 
 🔧 Platform Support
 
 Feature	macOS	Windows
-Spotify skip	✅	✅
+Spotify skip	⚠️ (temporarily unavailable)	⚠️ (temporarily unavailable)
 Apple Music skip	✅	❌
 System-wide now-playing	⚠️ (future)	⚠️ (future GSMTC)
 Browser players (YouTube/Spotify Web/Amazon)	🔜 extension	🔜 extension
@@ -57,22 +103,7 @@ Browser players (YouTube/Spotify Web/Amazon)	🔜 extension	🔜 extension
 
 🔑 Setup Instructions
 
-1. Spotify (Recommended)
-
-SwiftBeGone uses the Spotify Web API to detect and skip blocked tracks.
-
-Steps (first run):
-	1.	Open SwiftBeGone from your tray/menu bar
-	2.	Click Connect Spotify…
-	3.	Approve the requested permissions:
-	•	user-read-playback-state
-	•	user-modify-playback-state
-
-After that, SwiftBeGone skips blocked artists automatically.
-
-⸻
-
-2. Apple Music (macOS)
+1. Apple Music (macOS) — ✅ Available Now
 
 No setup needed.
 
@@ -84,11 +115,17 @@ Click Allow.
 
 ⸻
 
+2. Spotify — ⚠️ Temporarily Unavailable
+
+Spotify has temporarily halted new app registrations in their developer portal. If you already have Spotify connected, it will continue to work. New users should use Apple Music on macOS until Spotify reopens registrations.
+
+⸻
+
 🧩 How It Works
 
-SwiftBeGone uses a set of “providers” to detect what you’re listening to:
-	1.	SpotifyProvider → Spotify Web API
-	2.	AppleMusicProvider → AppleScript (osascript)
+SwiftBeGone uses a set of "providers" to detect what you're listening to:
+	1.	SpotifyProvider → Spotify Web API (⚠️ temporarily unavailable for new users)
+	2.	AppleMusicProvider → AppleScript (osascript) — ✅ Available on macOS
 	3.	(Planned) BrowserExtensionProvider → Chrome/Edge extension
 	4.	(Planned) WindowsMediaProvider → Windows GSMTC API
 
