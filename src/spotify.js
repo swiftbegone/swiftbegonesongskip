@@ -142,6 +142,7 @@ async function exchangeCodeForTokens(code) {
  * @returns {Promise<string>} - New access token
  */
 async function refreshAccessToken() {
+  console.log("Refreshing Spotify access token…");
   const refreshToken = store.get('spotify_refresh_token');
   if (!refreshToken) {
     throw new Error('No refresh token available. Please reconnect Spotify.');
@@ -169,8 +170,10 @@ async function refreshAccessToken() {
     store.set('spotify_access_token', access_token);
     store.set('spotify_token_expires_at', Date.now() + (expires_in * 1000));
 
+    console.log("Spotify access token refreshed.");
     return access_token;
   } catch (error) {
+    console.error("Spotify token refresh failed:", error.message);
     // If refresh fails, clear tokens
     store.delete('spotify_access_token');
     store.delete('spotify_refresh_token');
@@ -208,10 +211,14 @@ function isSpotifyConnected() {
  * @returns {Promise<void>}
  */
 async function connectSpotify() {
+  console.log("Connecting to Spotify…");
   try {
     const code = await initiateOAuth();
+    console.log("OAuth code received, exchanging for tokens…");
     await exchangeCodeForTokens(code);
+    console.log("Spotify connected successfully.");
   } catch (error) {
+    console.error("Spotify connection failed:", error.message);
     stopOAuthServer();
     throw error;
   }
@@ -246,11 +253,13 @@ async function getCurrentlyPlaying() {
     const artists = item.artists.map(artist => artist.name);
     const trackName = item.name;
 
-    return {
+    const trackInfo = {
       artists,
       track: trackName,
       isPlaying: response.data.is_playing === true
     };
+    console.log(`Spotify playing: ${artists.join(', ')} — ${trackName}`);
+    return trackInfo;
   } catch (error) {
     // If token refresh failed, return null
     if (error.message.includes('refresh') || error.message.includes('401')) {
@@ -269,6 +278,7 @@ async function skipToNext() {
     throw new Error('Spotify is not connected');
   }
 
+  console.log("Skipping to next track on Spotify…");
   try {
     const accessToken = await getValidAccessToken();
     await httpsRequest(
@@ -280,6 +290,7 @@ async function skipToNext() {
         }
       }
     );
+    console.log("Spotify track skipped.");
   } catch (error) {
     // If token refresh failed, rethrow
     if (error.message.includes('refresh') || error.message.includes('401')) {

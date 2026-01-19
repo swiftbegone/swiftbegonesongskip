@@ -65,11 +65,13 @@ async function getCurrentlyPlaying() {
     const parts = trackOutput.trim().split('|');
     
     if (parts.length === 2) {
-      return {
+      const trackInfo = {
         artist: parts[0].trim(),
         track: parts[1].trim(),
         isPlaying: true
       };
+      console.log(`Apple Music playing: ${trackInfo.artist} — ${trackInfo.track}`);
+      return trackInfo;
     }
 
     return null;
@@ -92,9 +94,11 @@ async function skipToNext() {
     throw new Error('Apple Music is only supported on macOS');
   }
 
+  console.log("Skipping to next track on Apple Music…");
   try {
     const skipScript = 'tell application "Music" to next track';
     await execAsync(`osascript -e '${skipScript}'`);
+    console.log("Apple Music track skipped.");
   } catch (error) {
     if (error.message.includes('not allowed') || error.message.includes('permission')) {
       throw new Error('SwiftBeGone needs permission to control the Music app. Please grant permission in System Settings > Privacy & Security > Automation.');

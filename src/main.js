@@ -13,6 +13,8 @@ const { isAnyArtistBlocked, sanitizeBlockedList } = require('./blocklist');
 
 const store = new Store();
 
+console.log("SwiftBeGone starting…", process.platform);
+
 // Default settings
 const DEFAULT_SETTINGS = {
   enabled: true,
@@ -31,7 +33,9 @@ let tray = null;
 let pollingInterval = null;
 let lastSkipTime = 0;
 const SKIP_COOLDOWN_MS = 2500; // 2.5 seconds
-const POLL_INTERVAL_MS = 1100; // ~1.1 seconds
+const POLL_INTERVAL_MS = 2000; // 2 seconds when music is playing
+const IDLE_POLL_INTERVAL_MS = 5000; // 5 seconds when paused/idle
+let isMusicPlaying = false;
 
 let currentStatus = {
   source: 'idle',
@@ -170,9 +174,11 @@ function updateMenu() {
 async function handleSkip(source) {
   const now = Date.now();
   if (now - lastSkipTime < SKIP_COOLDOWN_MS) {
+    console.log(`Skip cooldown active (${now - lastSkipTime}ms < ${SKIP_COOLDOWN_MS}ms)`);
     return; // Still in cooldown
   }
   
+  console.log(`Skipping track on ${source}…`);
   try {
     if (source === 'spotify') {
       await spotify.skipToNext();
@@ -180,6 +186,7 @@ async function handleSkip(source) {
       await appleMusic.skipToNext();
     }
     lastSkipTime = now;
+    console.log(`Track skipped on ${source}.`);
   } catch (error) {
     console.error(`Error skipping track: ${error.message}`);
     currentStatus.error = error.message;
@@ -198,6 +205,11 @@ async function pollNowPlaying() {
   const enabled = store.get('enabled', true);
   if (!enabled) {
     // Still update status, but don't skip
+    const wasPlaying = isMusicPlaying;
+    isMusicPlaying = false;
+    if (wasPlaying) {
+      updatePollingInterval(); // Switch to slower polling when disabled
+    }
     currentStatus.source = 'idle';
     currentStatus.artist = null;
     currentStatus.track = null;
@@ -205,12 +217,19 @@ async function pollNowPlaying() {
     return;
   }
 
+  console.log("Polling for currently playing track…");
   try {
     // Priority 1: Spotify (if connected)
     if (spotify.isSpotifyConnected()) {
       try {
         const spotifyTrack = await spotify.getCurrentlyPlaying();
         if (spotifyTrack && spotifyTrack.isPlaying) {
+          const wasPlaying = isMusicPlaying;
+          isMusicPlaying = true;
+          if (!wasPlaying) {
+            updatePollingInterval(); // Switch to faster polling
+          }
+          
           currentStatus.source = 'spotify';
           currentStatus.artist = spotifyTrack.artists;
           currentStatus.track = spotifyTrack.track;
@@ -236,6 +255,12 @@ async function pollNowPlaying() {
       try {
         const appleTrack = await appleMusic.getCurrentlyPlaying();
         if (appleTrack && appleTrack.isPlaying) {
+          const wasPlaying = isMusicPlaying;
+          isMusicPlaying = true;
+          if (!wasPlaying) {
+            updatePollingInterval(); // Switch to faster polling
+          }
+          
           currentStatus.source = 'apple-music';
           currentStatus.artist = appleTrack.artist;
           currentStatus.track = appleTrack.track;
@@ -256,11 +281,18 @@ async function pollNowPlaying() {
       }
     }
 
-    // No active source
+    // No active source - music is paused or not playing
+    const wasPlaying = isMusicPlaying;
+    isMusicPlaying = false;
+    if (wasPlaying) {
+      updatePollingInterval(); // Switch to slower polling when paused
+    }
+    
     currentStatus.source = 'idle';
     currentStatus.artist = null;
     currentStatus.track = null;
     currentStatus.error = null;
+    console.log("No active music source detected (paused or idle).");
     updateMenu();
   } catch (error) {
     console.error('Polling error:', error.message);
@@ -273,6 +305,7 @@ async function pollNowPlaying() {
  * Initializes the tray icon and menu
  */
 function createTray() {
+  console.log("Creating tray…");
   const iconPath = getIconPath();
   
   tray = new Tray(iconPath || (process.platform === 'darwin' 
@@ -288,38 +321,58 @@ function createTray() {
       tray.popUpContextMenu();
     });
   }
+  console.log("Tray created.");
 }
 
 /**
- * Starts the polling interval
+ * Starts or restarts the polling interval with appropriate frequency
  */
 function startPolling() {
+  console.log("Starting polling…");
   if (pollingInterval) {
     clearInterval(pollingInterval);
   }
   
-  // Poll immediately, then set interval
+  // Poll immediately, then set interval based on current state
   pollNowPlaying();
-  pollingInterval = setInterval(pollNowPlaying, POLL_INTERVAL_MS);
+  updatePollingInterval();
+  console.log("Polling started.");
+}
+
+/**
+ * Updates polling interval based on whether music is currently playing
+ */
+function updatePollingInterval() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+  }
+  
+  const interval = isMusicPlaying ? POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS;
+  pollingInterval = setInterval(pollNowPlaying, interval);
+  console.log(`Polling interval set to ${interval}ms (${isMusicPlaying ? 'active' : 'idle'})`);
 }
 
 /**
  * Stops the polling interval
  */
 function stopPolling() {
+  console.log("Stopping polling…");
   if (pollingInterval) {
     clearInterval(pollingInterval);
     pollingInterval = null;
   }
+  console.log("Polling stopped.");
 }
 
 // App lifecycle
 app.whenReady().then(() => {
+  console.log("App ready, initializing…");
   createTray();
   startPolling();
   
   // Update menu periodically to refresh status
   setInterval(updateMenu, 2000);
+  console.log("App initialized.");
 });
 
 app.on('window-all-closed', (e) => {
@@ -341,9 +394,11 @@ app.on('activate', () => {
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
+  console.log("Another instance is already running, quitting…");
   app.quit();
 } else {
   app.on('second-instance', () => {
+    console.log("Second instance detected, showing menu…");
     // Focus existing instance
     if (tray) {
       tray.popUpContextMenu();

@@ -16,6 +16,7 @@ let resolveCallback = null;
  */
 function startOAuthServer(callback) {
   return new Promise((resolve, reject) => {
+    console.log("Starting OAuth server…");
     if (server) {
       reject(new Error('OAuth server is already running'));
       return;
@@ -45,6 +46,7 @@ function startOAuthServer(callback) {
       }
 
       if (code) {
+        console.log("OAuth authorization code received.");
         res.send(`
           <html>
             <head><title>SwiftBeGone - Authorization Successful</title></head>
@@ -100,9 +102,11 @@ function startOAuthServer(callback) {
  */
 function stopOAuthServer() {
   if (server) {
+    console.log("Stopping OAuth server…");
     server.close();
     server = null;
     resolveCallback = null;
+    console.log("OAuth server stopped.");
   }
 }
 
