@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SwiftBeGone - Blocklist Settings</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      font-size: 13px;
+      background: #ffffff;
+      color: #333;
+      padding: 20px;
+    }
+    
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #000;
+    }
+    
+    .section {
+      margin-bottom: 24px;
+    }
+    
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #333;
+    }
+    
+    .list {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 12px;
+      max-height: 150px;
+      overflow-y: auto;
+      background: #fafafa;
+    }
+    
+    .list-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .list-item:last-child {
+      border-bottom: none;
+    }
+    
+    .list-item-text {
+      flex: 1;
+      color: #333;
+    }
+    
+    .list-empty {
+      padding: 16px;
+      text-align: center;
+      color: #999;
+      font-style: italic;
+    }
+    
+    .remove-btn {
+      background: #ff4444;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    
+    .remove-btn:hover {
+      background: #cc0000;
+    }
+    
+    .add-form {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .add-form input {
+      flex: 1;
+      padding: 6px 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    
+    .add-form input:focus {
+      outline: none;
+      border-color: #007aff;
+    }
+    
+    .add-btn {
+      background: #007aff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    
+    .add-btn:hover {
+      background: #0056b3;
+    }
+    
+    .add-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    .quick-actions {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #eee;
+    }
+    
+    .quick-btn {
+      background: #34c759;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      width: 100%;
+      margin-bottom: 8px;
+      transition: background 0.2s;
+    }
+    
+    .quick-btn:hover {
+      background: #28a745;
+    }
+    
+    .quick-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    .two-column {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .two-column input {
+      flex: 1;
+    }
+  </style>
+</head>
+<body>
+  <h1>Blocklist Settings</h1>
+  
+  <!-- Blocked Artists Section -->
+  <div class="section">
+    <div class="section-title">Blocked Artists</div>
+    <div class="list" id="artists-list">
+      <div class="list-empty">No blocked artists</div>
+    </div>
+    <div class="add-form">
+      <input type="text" id="artist-input" placeholder="Enter artist name">
+      <button class="add-btn" id="add-artist-btn">Add</button>
+    </div>
+  </div>
+  
+  <!-- Blocked Songs Section -->
+  <div class="section">
+    <div class="section-title">Blocked Songs</div>
+    <div class="list" id="tracks-list">
+      <div class="list-empty">No blocked songs</div>
+    </div>
+    <div class="add-form">
+      <div class="two-column">
+        <input type="text" id="track-artist-input" placeholder="Artist name (optional)">
+        <input type="text" id="track-name-input" placeholder="Song name (required)">
+      </div>
+      <button class="add-btn" id="add-track-btn">Add</button>
+    </div>
+  </div>
+  
+  <!-- Quick Actions -->
+  <div class="quick-actions">
+    <button class="quick-btn" id="block-current-song-btn">Block Current Song</button>
+    <button class="quick-btn" id="block-current-artist-btn">Block Current Artist</button>
+  </div>
+  
+  <script src="settings.js"></script>
+</body>
+</html>

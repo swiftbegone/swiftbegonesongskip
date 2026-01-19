@@ -3,13 +3,13 @@
  * Handles tray/menu bar, polling, and automatic skipping
  */
 
-const { app, Tray, Menu, shell } = require('electron');
+const { app, Tray, Menu, shell, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const Store = require('electron-store');
 const spotify = require('./spotify');
 const appleMusic = require('./appleMusic');
-const { isAnyArtistBlocked, sanitizeBlockedList } = require('./blocklist');
+const { isBlocked, sanitizeBlockedList, sanitizeBlockedTracks, normalize } = require('./blocklist');
 
 const store = new Store();
 
@@ -18,7 +18,8 @@ console.log("SwiftBeGone starting…", process.platform);
 // Default settings
 const DEFAULT_SETTINGS = {
   enabled: true,
-  blocked_artists: ['Taylor Swift']
+  blocked_artists: ['Taylor Swift'],
+  blocked_tracks: []
 };
 
 // Initialize settings with defaults
@@ -28,6 +29,12 @@ if (!store.has('enabled')) {
 if (!store.has('blocked_artists')) {
   store.set('blocked_artists', DEFAULT_SETTINGS.blocked_artists);
 }
+if (!store.has('blocked_tracks')) {
+  store.set('blocked_tracks', DEFAULT_SETTINGS.blocked_tracks);
+}
+
+// Settings window management
+let settingsWindow = null;
 
 let tray = null;
 let pollingInterval = null;
@@ -116,6 +123,12 @@ function createMenu() {
         updateMenu();
       }
     },
+    {
+      label: 'Edit Blocklist…',
+      click: () => {
+        openSettingsWindow();
+      }
+    },
     { type: 'separator' },
     {
       label: isConnected ? 'Spotify: Connected' : 'Spotify: Temporarily Unavailable',
@@ -166,6 +179,44 @@ function updateMenu() {
   if (tray) {
     tray.setContextMenu(createMenu());
   }
+}
+
+/**
+ * Opens the settings window (or focuses if already open)
+ */
+function openSettingsWindow() {
+  if (settingsWindow) {
+    if (settingsWindow.isMinimized()) {
+      settingsWindow.restore();
+    }
+    settingsWindow.focus();
+    return;
+  }
+  
+  settingsWindow = new BrowserWindow({
+    width: 420,
+    height: 520,
+    resizable: true,
+    minWidth: 400,
+    minHeight: 400,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'settingsPreload.js')
+    },
+    title: 'SwiftBeGone - Blocklist Settings',
+    show: false
+  });
+  
+  settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
+  
+  settingsWindow.once('ready-to-show', () => {
+    settingsWindow.show();
+  });
+  
+  settingsWindow.on('closed', () => {
+    settingsWindow = null;
+  });
 }
 
 /**
@@ -235,9 +286,13 @@ async function pollNowPlaying() {
           currentStatus.track = spotifyTrack.track;
           currentStatus.error = null;
           
-          // Check if any artist is blocked
+          // Check if track or artist is blocked
           const blockedArtists = sanitizeBlockedList(store.get('blocked_artists', []));
-          if (isAnyArtistBlocked(spotifyTrack.artists, blockedArtists)) {
+          const blockedTracks = sanitizeBlockedTracks(store.get('blocked_tracks', []));
+          const blocked = isBlocked(spotifyTrack.artists, spotifyTrack.track, blockedArtists, blockedTracks);
+          
+          if (blocked.blocked) {
+            console.log(`Blocked ${blocked.reason === 'track' ? 'track' : 'artist'}: ${spotifyTrack.track}`);
             await handleSkip('spotify');
           }
           
@@ -266,9 +321,13 @@ async function pollNowPlaying() {
           currentStatus.track = appleTrack.track;
           currentStatus.error = null;
           
-          // Check if artist is blocked
+          // Check if track or artist is blocked
           const blockedArtists = sanitizeBlockedList(store.get('blocked_artists', []));
-          if (isAnyArtistBlocked([appleTrack.artist], blockedArtists)) {
+          const blockedTracks = sanitizeBlockedTracks(store.get('blocked_tracks', []));
+          const blocked = isBlocked([appleTrack.artist], appleTrack.track, blockedArtists, blockedTracks);
+          
+          if (blocked.blocked) {
+            console.log(`Blocked ${blocked.reason === 'track' ? 'track' : 'artist'}: ${appleTrack.track}`);
             await handleSkip('apple-music');
           }
           
@@ -363,6 +422,137 @@ function stopPolling() {
   }
   console.log("Polling stopped.");
 }
+
+// IPC handlers for settings window
+ipcMain.handle('blocklist:get', async () => {
+  return {
+    artists: store.get('blocked_artists', []),
+    tracks: store.get('blocked_tracks', [])
+  };
+});
+
+ipcMain.handle('blocklist:set-artists', async (event, artists) => {
+  const sanitized = sanitizeBlockedList(artists);
+  store.set('blocked_artists', sanitized);
+  return;
+});
+
+ipcMain.handle('blocklist:set-tracks', async (event, tracks) => {
+  const sanitized = sanitizeBlockedTracks(tracks);
+  store.set('blocked_tracks', sanitized);
+  return;
+});
+
+ipcMain.handle('blocklist:block-current-song', async () => {
+  // Get currently playing track from Apple Music (Spotify ignored for now)
+  if (process.platform !== 'darwin') {
+    return { success: false, message: 'Apple Music is only available on macOS' };
+  }
+  
+  try {
+    const appleTrack = await appleMusic.getCurrentlyPlaying();
+    if (!appleTrack || !appleTrack.isPlaying) {
+      return { success: false, message: 'No music is currently playing' };
+    }
+    
+    const blockedTracks = sanitizeBlockedTracks(store.get('blocked_tracks', []));
+    
+    // Normalize the track for comparison
+    const normalized = {
+      artist: normalize(appleTrack.artist),
+      track: normalize(appleTrack.track)
+    };
+    
+    // Check if already blocked (including tracks without artist)
+    if (blockedTracks.some(t => {
+      if (t.track !== normalized.track) return false;
+      // Track matches - check artist
+      // If blocked track has no artist, it matches any artist
+      if (t.artist === undefined) return true;
+      // If blocked track has an artist, it must match
+      return t.artist === normalized.artist;
+    })) {
+      return { success: false, message: 'This song is already blocked' };
+    }
+    
+    // Add the normalized track and sanitize the entire list
+    blockedTracks.push(normalized);
+    const sanitized = sanitizeBlockedTracks(blockedTracks);
+    store.set('blocked_tracks', sanitized);
+    
+    return { 
+      success: true, 
+      message: `${appleTrack.artist} — ${appleTrack.track}` 
+    };
+  } catch (error) {
+    console.error('Failed to block current song:', error);
+    return { success: false, message: error.message || 'Failed to get current song' };
+  }
+});
+
+ipcMain.handle('blocklist:block-current-artist', async () => {
+  // Get currently playing track from Apple Music (Spotify ignored for now)
+  if (process.platform !== 'darwin') {
+    return { success: false, message: 'Apple Music is only available on macOS' };
+  }
+  
+  try {
+    const appleTrack = await appleMusic.getCurrentlyPlaying();
+    if (!appleTrack || !appleTrack.isPlaying) {
+      return { success: false, message: 'No music is currently playing' };
+    }
+    
+    const blockedArtists = sanitizeBlockedList(store.get('blocked_artists', []));
+    const artistName = appleTrack.artist;
+    const normalizedArtist = normalize(artistName);
+    
+    // Check if already blocked (compare normalized)
+    if (blockedArtists.some(a => normalize(a) === normalizedArtist)) {
+      return { success: false, message: 'This artist is already blocked' };
+    }
+    
+    // Add the original artist name and sanitize the entire list
+    blockedArtists.push(artistName);
+    store.set('blocked_artists', sanitizeBlockedList(blockedArtists));
+    
+    return { 
+      success: true, 
+      message: artistName 
+    };
+  } catch (error) {
+    console.error('Failed to block current artist:', error);
+    return { success: false, message: error.message || 'Failed to get current artist' };
+  }
+});
+
+ipcMain.handle('blocklist:get-now-playing', async () => {
+  // Try Apple Music first (Spotify ignored for now)
+  if (process.platform === 'darwin') {
+    try {
+      const appleTrack = await appleMusic.getCurrentlyPlaying();
+      if (appleTrack && appleTrack.isPlaying) {
+        return {
+          artist: appleTrack.artist,
+          track: appleTrack.track,
+          source: 'apple-music'
+        };
+      }
+    } catch (error) {
+      // Ignore errors, try other sources
+    }
+  }
+  
+  // Fall back to currentStatus if available
+  if (currentStatus.artist && currentStatus.track) {
+    return {
+      artist: currentStatus.artist,
+      track: currentStatus.track,
+      source: currentStatus.source
+    };
+  }
+  
+  return null;
+});
 
 // App lifecycle
 app.whenReady().then(() => {

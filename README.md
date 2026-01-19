@@ -9,8 +9,10 @@ It works across major players and browser services (via an upcoming extension), 
 ⸻
 
 ✨ Features
-	•	🎵 Automatically skip blocked artists
-Default blocklist: ["Taylor Swift"] — customizable in future versions.
+	•	🎵 Automatically skip blocked artists and songs
+Default blocklist: ["Taylor Swift"] — fully customizable via settings.
+	•	⚙️ Edit Blocklist… settings window
+Add/remove blocked artists and individual songs. Supports "Block Current Song" and "Block Current Artist" for quick additions (requires Apple Music playing on macOS).
 	•	🟢 Spotify support (macOS + Windows) — ⚠️ Temporarily Unavailable
 Spotify has temporarily halted new app registrations in their developer portal. Support will be restored once registrations reopen. Existing connected accounts will continue to work.
 	•	🍎 Apple Music support (macOS)
@@ -138,15 +140,23 @@ If the detected artist is in your blocklist, SwiftBeGone sends a “skip” comm
 
 Default blocklist (stored locally via electron-store):
 
-["Taylor Swift"]
+Artists: ["Taylor Swift"]
+Songs: []
 
-Matching is:
+Matching rules:
 	•	case-insensitive
-	•	trimmed
-	•	exact match against artist name
+	•	trimmed and normalized (collapsed whitespace)
+	•	exact match against artist name OR specific song (artist + track)
+	•	Track-level blocks take priority over artist-level blocks
 
-Future versions will allow:
-	•	editing the blocklist
+Editing the blocklist:
+	•	Right-click the tray/menu bar icon
+	•	Select "Edit Blocklist…"
+	•	Add/remove blocked artists and songs
+	•	Use "Block Current Song" to quickly block what's playing (requires Apple Music on macOS)
+	•	Use "Block Current Artist" to block the artist of the current song
+
+Future versions may include:
 	•	wildcard matching
 	•	multiple profiles
 
