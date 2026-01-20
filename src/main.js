@@ -56,8 +56,8 @@ let currentStatus = {
  */
 function getIconPath() {
   if (process.platform === 'darwin') {
-    // macOS - use template icon or fallback
-    const iconPath = path.join(__dirname, '../assets/iconTemplate.png');
+    // macOS - use icon.ico for menu bar
+    const iconPath = path.join(__dirname, '../assets/icon.ico');
     return fs.existsSync(iconPath) ? iconPath : null;
   } else {
     // Windows - use .ico or fallback
@@ -367,9 +367,7 @@ function createTray() {
   console.log("Creating tray…");
   const iconPath = getIconPath();
   
-  tray = new Tray(iconPath || (process.platform === 'darwin' 
-    ? path.join(__dirname, '../assets/iconTemplate.png')
-    : path.join(__dirname, '../assets/icon.ico')));
+  tray = new Tray(iconPath || path.join(__dirname, '../assets/icon.ico'));
   
   tray.setToolTip('SwiftBeGone');
   tray.setContextMenu(createMenu());

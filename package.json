@@ -38,7 +38,7 @@
     ],
     "mac": {
       "category": "public.app-category.music",
-      "icon": "assets/iconTemplate.png",
+      "icon": "assets/iconTemplate.icns",
       "target": [
         "dmg",
         "zip"
