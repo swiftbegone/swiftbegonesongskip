@@ -9,7 +9,8 @@ const fs = require('fs');
 const Store = require('electron-store');
 const spotify = require('./spotify');
 const appleMusic = require('./appleMusic');
-const { isBlocked, sanitizeBlockedList, sanitizeBlockedTracks, normalize } = require('./blocklist');
+const { isBlocked, sanitizeBlockedList, sanitizeBlockedTracks, sanitizeBlockedPatterns, normalize } = require('./blocklist');
+const crypto = require('crypto');
 
 const store = new Store();
 
@@ -19,7 +20,10 @@ console.log("SwiftBeGone starting…", process.platform);
 const DEFAULT_SETTINGS = {
   enabled: true,
   blocked_artists: ['Taylor Swift'],
-  blocked_tracks: []
+  blocked_tracks: [],
+  blocked_patterns: [], // Examples: "*live", "*acoustic", "*remix"
+  block_collaborations: false,
+  reverse_mode: false
 };
 
 // Initialize settings with defaults
@@ -31,6 +35,30 @@ if (!store.has('blocked_artists')) {
 }
 if (!store.has('blocked_tracks')) {
   store.set('blocked_tracks', DEFAULT_SETTINGS.blocked_tracks);
+}
+if (!store.has('blocked_patterns')) {
+  store.set('blocked_patterns', DEFAULT_SETTINGS.blocked_patterns);
+}
+if (!store.has('block_collaborations')) {
+  store.set('block_collaborations', DEFAULT_SETTINGS.block_collaborations);
+}
+if (!store.has('reverse_mode')) {
+  store.set('reverse_mode', DEFAULT_SETTINGS.reverse_mode);
+}
+if (!store.has('stats_total_blocks')) {
+  store.set('stats_total_blocks', 0);
+}
+if (!store.has('stats_total_blocks_artist')) {
+  store.set('stats_total_blocks_artist', 0);
+}
+if (!store.has('stats_total_blocks_track')) {
+  store.set('stats_total_blocks_track', 0);
+}
+if (!store.has('stats_total_blocks_pattern')) {
+  store.set('stats_total_blocks_pattern', 0);
+}
+if (!store.has('stats_total_blocks_reverse')) {
+  store.set('stats_total_blocks_reverse', 0);
 }
 
 // Settings window management
@@ -51,6 +79,22 @@ let currentStatus = {
   error: null
 };
 
+// History tracking (last 10 songs)
+let history = [];
+const MAX_HISTORY = 10;
+
+// Session stats (reset on app restart)
+let sessionStats = {
+  total: 0,
+  artist: 0,
+  track: 0,
+  pattern: 0,
+  reverse: 0
+};
+
+// Canonical now playing object
+let nowPlaying = null;
+
 /**
  * Gets the icon path based on platform
  */
@@ -67,35 +111,24 @@ function getIconPath() {
 }
 
 /**
- * Formats the status line for the menu
+ * Truncates a string to a maximum length with ellipsis
  */
-function formatStatusLine() {
-  if (currentStatus.error) {
-    return `Error: ${currentStatus.error}`;
-  }
-  
-  if (currentStatus.source === 'idle') {
+function truncateString(str, maxLength = 60) {
+  if (!str || str.length <= maxLength) return str;
+  return str.substring(0, maxLength - 3) + '...';
+}
+
+/**
+ * Formats now playing for the tray menu
+ */
+function formatNowPlayingForTray() {
+  if (!nowPlaying || !nowPlaying.artist || !nowPlaying.track) {
     return 'Idle';
   }
   
-  if (currentStatus.source === 'spotify') {
-    if (currentStatus.artist && currentStatus.track) {
-      const artists = Array.isArray(currentStatus.artist) 
-        ? currentStatus.artist.join(', ') 
-        : currentStatus.artist;
-      return `Spotify: ${artists} — ${currentStatus.track}`;
-    }
-    return 'Spotify: Connected';
-  }
-  
-  if (currentStatus.source === 'apple-music') {
-    if (currentStatus.artist && currentStatus.track) {
-      return `Apple Music: ${currentStatus.artist} — ${currentStatus.track}`;
-    }
-    return 'Apple Music: Playing';
-  }
-  
-  return 'Idle';
+  const artist = typeof nowPlaying.artist === 'string' ? nowPlaying.artist : nowPlaying.artist.join(', ');
+  const track = truncateString(nowPlaying.track, 60);
+  return `${truncateString(artist, 30)} — ${track}`;
 }
 
 /**
@@ -103,64 +136,52 @@ function formatStatusLine() {
  */
 function createMenu() {
   const enabled = store.get('enabled', true);
-  const isConnected = spotify.isSpotifyConnected();
-  const statusLine = formatStatusLine();
+  const hasNowPlaying = nowPlaying && nowPlaying.artist && nowPlaying.track;
+  const nowPlayingText = formatNowPlayingForTray();
+  const canSkip = hasNowPlaying && (currentStatus.source === 'apple-music' || currentStatus.source === 'spotify');
   
   const template = [
     {
-      label: `SwiftBeGone — ${enabled ? 'ON' : 'OFF'}`,
-      enabled: false
-    },
-    {
-      label: statusLine,
-      enabled: false
-    },
-    { type: 'separator' },
-    {
-      label: enabled ? 'Disable' : 'Enable',
+      label: `SwiftBeGone — ${enabled ? 'ENABLED' : 'DISABLED'}`,
       click: () => {
         store.set('enabled', !enabled);
         updateMenu();
       }
     },
+    { type: 'separator' },
     {
-      label: 'Edit Blocklist…',
+      label: `Now Playing: ${nowPlayingText}`,
+      enabled: false
+    },
+    { type: 'separator' },
+    {
+      label: 'Block Current Song',
+      enabled: hasNowPlaying,
+      click: async () => {
+        await blockCurrentSongFromTray();
+      }
+    },
+    {
+      label: 'Block Current Artist',
+      enabled: hasNowPlaying,
+      click: async () => {
+        await blockCurrentArtistFromTray();
+      }
+    },
+    {
+      label: 'Skip Track',
+      enabled: canSkip,
+      click: async () => {
+        await skipTrackFromTray();
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Dashboard…',
       click: () => {
         openSettingsWindow();
       }
     },
-    { type: 'separator' },
-    {
-      label: isConnected ? 'Spotify: Connected' : 'Spotify: Temporarily Unavailable',
-      enabled: false,
-      tooltip: isConnected ? '' : 'Spotify has temporarily halted new app registrations. Apple Music support is still available on macOS.'
-    },
-    { type: 'separator' },
-    {
-      label: 'Help / Setup…',
-      click: () => {
-        shell.openExternal('https://swiftbegone.xyz');
-      }
-    },
-    {
-      label: 'Install Browser Extension…',
-      click: () => {
-        shell.openExternal('https://swiftbegone.xyz/#extension');
-      }
-    },
-    {
-      label: 'Donate…',
-      click: () => {
-        shell.openExternal('https://buymeacoffee.com/swiftbegone?new=1');
-      }
-    },
-    {
-      label: 'GitHub…',
-      click: () => {
-        shell.openExternal('https://github.com/swiftbegone/swiftbegonesongskip');
-      }
-    },
-    { type: 'separator' },
     {
       label: 'Quit',
       click: () => {
@@ -182,6 +203,203 @@ function updateMenu() {
 }
 
 /**
+ * Block current song from tray menu
+ */
+async function blockCurrentSongFromTray() {
+  if (!nowPlaying || !nowPlaying.track) {
+    return;
+  }
+  
+  try {
+    const blockedTracks = sanitizeBlockedTracks(store.get('blocked_tracks', []));
+    const normalized = {
+      artist: nowPlaying.artist ? normalize(nowPlaying.artist) : undefined,
+      track: normalize(nowPlaying.track)
+    };
+    
+    // Check if already blocked
+    if (blockedTracks.some(t => {
+      if (t.track !== normalized.track) return false;
+      if (t.artist === undefined) return true;
+      return normalized.artist !== undefined && t.artist === normalized.artist;
+    })) {
+      console.log('Song is already blocked');
+      return;
+    }
+    
+    // Add the normalized track
+    blockedTracks.push(normalized);
+    store.set('blocked_tracks', sanitizeBlockedTracks(blockedTracks));
+    
+    // Update menu and notify settings window
+    updateMenu();
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send('blocklist-updated');
+    }
+    
+    console.log(`Blocked song from tray: ${nowPlaying.track}`);
+  } catch (error) {
+    console.error('Failed to block current song from tray:', error);
+  }
+}
+
+/**
+ * Block current artist from tray menu
+ */
+async function blockCurrentArtistFromTray() {
+  if (!nowPlaying || !nowPlaying.artist) {
+    return;
+  }
+  
+  try {
+    const blockedArtists = sanitizeBlockedList(store.get('blocked_artists', []));
+    const artistName = typeof nowPlaying.artist === 'string' ? nowPlaying.artist : nowPlaying.artist[0];
+    const normalizedArtist = normalize(artistName);
+    
+    // Check if already blocked
+    if (blockedArtists.some(a => normalize(a) === normalizedArtist)) {
+      console.log('Artist is already blocked');
+      return;
+    }
+    
+    // Add the artist
+    blockedArtists.push(artistName);
+    store.set('blocked_artists', sanitizeBlockedList(blockedArtists));
+    
+    // Update menu and notify settings window
+    updateMenu();
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send('blocklist-updated');
+    }
+    
+    console.log(`Blocked artist from tray: ${artistName}`);
+  } catch (error) {
+    console.error('Failed to block current artist from tray:', error);
+  }
+}
+
+/**
+ * Skip track from tray menu (manual skip, doesn't increment stats)
+ */
+async function skipTrackFromTray() {
+  if (!currentStatus.source || currentStatus.source === 'idle') {
+    return;
+  }
+  
+  const now = Date.now();
+  if (now - lastSkipTime < SKIP_COOLDOWN_MS) {
+    console.log(`Skip cooldown active (${now - lastSkipTime}ms < ${SKIP_COOLDOWN_MS}ms)`);
+    return;
+  }
+  
+  console.log(`Manually skipping track on ${currentStatus.source}…`);
+  try {
+    if (currentStatus.source === 'spotify') {
+      await spotify.skipToNext();
+    } else if (currentStatus.source === 'apple-music') {
+      await appleMusic.skipToNext();
+    }
+    lastSkipTime = now;
+    console.log(`Track manually skipped on ${currentStatus.source}.`);
+    // Note: Manual skips don't increment stats
+  } catch (error) {
+    console.error(`Error manually skipping track: ${error.message}`);
+  }
+}
+
+/**
+ * Updates now playing and adds to history if changed
+ */
+function updateNowPlayingAndHistory(source, artist, track) {
+  const artistStr = Array.isArray(artist) ? artist.join(', ') : artist;
+  
+  // Check if now playing has changed
+  if (nowPlaying && 
+      nowPlaying.artist === artistStr && 
+      nowPlaying.track === track && 
+      nowPlaying.source === source) {
+    return; // No change
+  }
+  
+  // Update now playing
+  nowPlaying = {
+    source,
+    artist: artistStr,
+    track: track || '',
+    timestamp: Date.now()
+  };
+  
+  // Add to history
+  const historyEntry = {
+    id: crypto.randomUUID(),
+    ts: Date.now(),
+    source: source,
+    artist: artistStr,
+    track: track || ''
+  };
+  
+  history.unshift(historyEntry);
+  if (history.length > MAX_HISTORY) {
+    history.pop();
+  }
+  
+  // Notify settings window if open
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send('now-playing-updated', nowPlaying);
+    settingsWindow.webContents.send('history-updated', history);
+  }
+  
+  // Update tray menu when now playing changes
+  updateMenu();
+}
+
+/**
+ * Increments stats counters
+ */
+function incrementStats(reason) {
+  // Session stats
+  sessionStats.total++;
+  if (reason === 'artist') {
+    sessionStats.artist++;
+  } else if (reason === 'track') {
+    sessionStats.track++;
+  } else if (reason === 'pattern') {
+    sessionStats.pattern++;
+  } else if (reason === 'reverse') {
+    sessionStats.reverse++;
+  }
+  
+  // Persisted stats
+  store.set('stats_total_blocks', store.get('stats_total_blocks', 0) + 1);
+  if (reason === 'artist') {
+    store.set('stats_total_blocks_artist', store.get('stats_total_blocks_artist', 0) + 1);
+  } else if (reason === 'track') {
+    store.set('stats_total_blocks_track', store.get('stats_total_blocks_track', 0) + 1);
+  } else if (reason === 'pattern') {
+    store.set('stats_total_blocks_pattern', store.get('stats_total_blocks_pattern', 0) + 1);
+  } else if (reason === 'reverse') {
+    store.set('stats_total_blocks_reverse', store.get('stats_total_blocks_reverse', 0) + 1);
+  }
+  
+  // Update menu to show new counters
+  updateMenu();
+  
+  // Notify settings window if open
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send('stats-updated', {
+      session: sessionStats,
+      total: {
+        total: store.get('stats_total_blocks', 0),
+        artist: store.get('stats_total_blocks_artist', 0),
+        track: store.get('stats_total_blocks_track', 0),
+        pattern: store.get('stats_total_blocks_pattern', 0),
+        reverse: store.get('stats_total_blocks_reverse', 0)
+      }
+    });
+  }
+}
+
+/**
  * Opens the settings window (or focuses if already open)
  */
 function openSettingsWindow() {
@@ -194,21 +412,21 @@ function openSettingsWindow() {
   }
   
   settingsWindow = new BrowserWindow({
-    width: 420,
-    height: 520,
+    width: 900,
+    height: 650,
     resizable: true,
-    minWidth: 400,
-    minHeight: 400,
+    minWidth: 800,
+    minHeight: 600,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'settingsPreload.js')
     },
-    title: 'SwiftBeGone - Blocklist Settings',
+    title: 'SwiftBeGone - Dashboard',
     show: false
   });
   
-  settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
+  settingsWindow.loadFile(path.join(__dirname, 'dashboard.html'));
   
   settingsWindow.once('ready-to-show', () => {
     settingsWindow.show();
@@ -221,15 +439,17 @@ function openSettingsWindow() {
 
 /**
  * Handles skipping a track based on the current source
+ * @param {string} source - The music source ('spotify' or 'apple-music')
+ * @param {string} reason - The reason for blocking ('artist', 'track', 'pattern', 'reverse')
  */
-async function handleSkip(source) {
+async function handleSkip(source, reason) {
   const now = Date.now();
   if (now - lastSkipTime < SKIP_COOLDOWN_MS) {
     console.log(`Skip cooldown active (${now - lastSkipTime}ms < ${SKIP_COOLDOWN_MS}ms)`);
     return; // Still in cooldown
   }
   
-  console.log(`Skipping track on ${source}…`);
+  console.log(`Skipping track on ${source} (reason: ${reason})…`);
   try {
     if (source === 'spotify') {
       await spotify.skipToNext();
@@ -238,6 +458,21 @@ async function handleSkip(source) {
     }
     lastSkipTime = now;
     console.log(`Track skipped on ${source}.`);
+    
+    // Increment stats only when skip actually occurs
+    incrementStats(reason);
+    
+    // Mark current history entry as blocked if it exists
+    if (history.length > 0 && nowPlaying) {
+      const latestEntry = history[0];
+      if (latestEntry.artist === nowPlaying.artist && latestEntry.track === nowPlaying.track) {
+        latestEntry.reasonBlocked = reason;
+        // Notify settings window
+        if (settingsWindow && !settingsWindow.isDestroyed()) {
+          settingsWindow.webContents.send('history-updated', history);
+        }
+      }
+    }
   } catch (error) {
     console.error(`Error skipping track: ${error.message}`);
     currentStatus.error = error.message;
@@ -286,14 +521,29 @@ async function pollNowPlaying() {
           currentStatus.track = spotifyTrack.track;
           currentStatus.error = null;
           
+          // Update now playing and history
+          updateNowPlayingAndHistory('spotify', spotifyTrack.artists, spotifyTrack.track);
+          
           // Check if track or artist is blocked
           const blockedArtists = sanitizeBlockedList(store.get('blocked_artists', []));
           const blockedTracks = sanitizeBlockedTracks(store.get('blocked_tracks', []));
-          const blocked = isBlocked(spotifyTrack.artists, spotifyTrack.track, blockedArtists, blockedTracks);
+          const blockedPatterns = sanitizeBlockedPatterns(store.get('blocked_patterns', []));
+          const reverseMode = store.get('reverse_mode', false);
+          const blockCollaborations = store.get('block_collaborations', false);
+          
+          const blocked = isBlocked(
+            spotifyTrack.artists, 
+            spotifyTrack.track, 
+            blockedArtists, 
+            blockedTracks,
+            blockedPatterns,
+            reverseMode,
+            blockCollaborations
+          );
           
           if (blocked.blocked) {
-            console.log(`Blocked ${blocked.reason === 'track' ? 'track' : 'artist'}: ${spotifyTrack.track}`);
-            await handleSkip('spotify');
+            console.log(`Blocked ${blocked.reason}: ${spotifyTrack.track}`);
+            await handleSkip('spotify', blocked.reason);
           }
           
           updateMenu();
@@ -321,14 +571,29 @@ async function pollNowPlaying() {
           currentStatus.track = appleTrack.track;
           currentStatus.error = null;
           
+          // Update now playing and history
+          updateNowPlayingAndHistory('apple-music', appleTrack.artist, appleTrack.track);
+          
           // Check if track or artist is blocked
           const blockedArtists = sanitizeBlockedList(store.get('blocked_artists', []));
           const blockedTracks = sanitizeBlockedTracks(store.get('blocked_tracks', []));
-          const blocked = isBlocked([appleTrack.artist], appleTrack.track, blockedArtists, blockedTracks);
+          const blockedPatterns = sanitizeBlockedPatterns(store.get('blocked_patterns', []));
+          const reverseMode = store.get('reverse_mode', false);
+          const blockCollaborations = store.get('block_collaborations', false);
+          
+          const blocked = isBlocked(
+            [appleTrack.artist], 
+            appleTrack.track, 
+            blockedArtists, 
+            blockedTracks,
+            blockedPatterns,
+            reverseMode,
+            blockCollaborations
+          );
           
           if (blocked.blocked) {
-            console.log(`Blocked ${blocked.reason === 'track' ? 'track' : 'artist'}: ${appleTrack.track}`);
-            await handleSkip('apple-music');
+            console.log(`Blocked ${blocked.reason}: ${appleTrack.track}`);
+            await handleSkip('apple-music', blocked.reason);
           }
           
           updateMenu();
@@ -425,19 +690,43 @@ function stopPolling() {
 ipcMain.handle('blocklist:get', async () => {
   return {
     artists: store.get('blocked_artists', []),
-    tracks: store.get('blocked_tracks', [])
+    tracks: store.get('blocked_tracks', []),
+    patterns: store.get('blocked_patterns', []),
+    blockCollaborations: store.get('block_collaborations', false),
+    reverseMode: store.get('reverse_mode', false)
   };
 });
 
 ipcMain.handle('blocklist:set-artists', async (event, artists) => {
   const sanitized = sanitizeBlockedList(artists);
   store.set('blocked_artists', sanitized);
+  updateMenu();
   return;
 });
 
 ipcMain.handle('blocklist:set-tracks', async (event, tracks) => {
   const sanitized = sanitizeBlockedTracks(tracks);
   store.set('blocked_tracks', sanitized);
+  updateMenu();
+  return;
+});
+
+ipcMain.handle('blocklist:set-patterns', async (event, patterns) => {
+  const sanitized = sanitizeBlockedPatterns(patterns);
+  store.set('blocked_patterns', sanitized);
+  updateMenu();
+  return;
+});
+
+ipcMain.handle('blocklist:set-collabs', async (event, enabled) => {
+  store.set('block_collaborations', !!enabled);
+  updateMenu();
+  return;
+});
+
+ipcMain.handle('blocklist:set-reverse-mode', async (event, enabled) => {
+  store.set('reverse_mode', !!enabled);
+  updateMenu();
   return;
 });
 
@@ -550,6 +839,210 @@ ipcMain.handle('blocklist:get-now-playing', async () => {
   }
   
   return null;
+});
+
+// History IPC handlers
+ipcMain.handle('history:get', async () => {
+  return history;
+});
+
+ipcMain.handle('history:clear', async () => {
+  history = [];
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send('history-updated', history);
+  }
+  return;
+});
+
+ipcMain.handle('history:block-track', async (event, id) => {
+  const entry = history.find(e => e.id === id);
+  if (!entry) {
+    return { success: false, message: 'History entry not found' };
+  }
+  
+  const blockedTracks = sanitizeBlockedTracks(store.get('blocked_tracks', []));
+  const normalized = {
+    artist: entry.artist ? normalize(entry.artist) : undefined,
+    track: normalize(entry.track)
+  };
+  
+  // Check if already blocked
+  if (blockedTracks.some(t => {
+    if (t.track !== normalized.track) return false;
+    if (t.artist === undefined) return true;
+    return normalized.artist !== undefined && t.artist === normalized.artist;
+  })) {
+    return { success: false, message: 'This song is already blocked' };
+  }
+  
+  blockedTracks.push(normalized);
+  store.set('blocked_tracks', sanitizeBlockedTracks(blockedTracks));
+  updateMenu();
+  return { success: true };
+});
+
+ipcMain.handle('history:block-artist', async (event, id) => {
+  const entry = history.find(e => e.id === id);
+  if (!entry || !entry.artist) {
+    return { success: false, message: 'History entry not found or no artist' };
+  }
+  
+  const blockedArtists = sanitizeBlockedList(store.get('blocked_artists', []));
+  const normalizedArtist = normalize(entry.artist);
+  
+  if (blockedArtists.some(a => normalize(a) === normalizedArtist)) {
+    return { success: false, message: 'This artist is already blocked' };
+  }
+  
+  blockedArtists.push(entry.artist);
+  store.set('blocked_artists', sanitizeBlockedList(blockedArtists));
+  updateMenu();
+  return { success: true };
+});
+
+// Stats IPC handlers
+ipcMain.handle('stats:get', async () => {
+  return {
+    session: sessionStats,
+    total: {
+      total: store.get('stats_total_blocks', 0),
+      artist: store.get('stats_total_blocks_artist', 0),
+      track: store.get('stats_total_blocks_track', 0),
+      pattern: store.get('stats_total_blocks_pattern', 0),
+      reverse: store.get('stats_total_blocks_reverse', 0)
+    }
+  };
+});
+
+ipcMain.handle('stats:reset-session', async () => {
+  sessionStats = {
+    total: 0,
+    artist: 0,
+    track: 0,
+    pattern: 0,
+    reverse: 0
+  };
+  updateMenu();
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send('stats-updated', {
+      session: sessionStats,
+      total: {
+        total: store.get('stats_total_blocks', 0),
+        artist: store.get('stats_total_blocks_artist', 0),
+        track: store.get('stats_total_blocks_track', 0),
+        pattern: store.get('stats_total_blocks_pattern', 0),
+        reverse: store.get('stats_total_blocks_reverse', 0)
+      }
+    });
+  }
+  return;
+});
+
+ipcMain.handle('stats:reset-total', async () => {
+  store.set('stats_total_blocks', 0);
+  store.set('stats_total_blocks_artist', 0);
+  store.set('stats_total_blocks_track', 0);
+  store.set('stats_total_blocks_pattern', 0);
+  store.set('stats_total_blocks_reverse', 0);
+  updateMenu();
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send('stats-updated', {
+      session: sessionStats,
+      total: {
+        total: 0,
+        artist: 0,
+        track: 0,
+        pattern: 0,
+        reverse: 0
+      }
+    });
+  }
+  return;
+});
+
+// Export/Import IPC handlers
+ipcMain.handle('blocklist:export', async () => {
+  return {
+    artists: store.get('blocked_artists', []),
+    tracks: store.get('blocked_tracks', []),
+    patterns: store.get('blocked_patterns', []),
+    blockCollaborations: store.get('block_collaborations', false),
+    reverseMode: store.get('reverse_mode', false),
+    version: '1.0'
+  };
+});
+
+ipcMain.handle('blocklist:import', async (event, data) => {
+  try {
+    // Validate data structure
+    if (!data || typeof data !== 'object') {
+      return { success: false, message: 'Invalid data format' };
+    }
+    
+    // Import with validation
+    if (Array.isArray(data.artists)) {
+      store.set('blocked_artists', sanitizeBlockedList(data.artists));
+    }
+    if (Array.isArray(data.tracks)) {
+      store.set('blocked_tracks', sanitizeBlockedTracks(data.tracks));
+    }
+    if (Array.isArray(data.patterns)) {
+      store.set('blocked_patterns', sanitizeBlockedPatterns(data.patterns));
+    }
+    if (typeof data.blockCollaborations === 'boolean') {
+      store.set('block_collaborations', data.blockCollaborations);
+    }
+    if (typeof data.reverseMode === 'boolean') {
+      store.set('reverse_mode', data.reverseMode);
+    }
+    
+    updateMenu();
+    return { success: true };
+  } catch (error) {
+    console.error('Import error:', error);
+    return { success: false, message: error.message || 'Import failed' };
+  }
+});
+
+// Block track/artist helpers
+ipcMain.handle('blocklist:block-track', async (event, artist, track) => {
+  const blockedTracks = sanitizeBlockedTracks(store.get('blocked_tracks', []));
+  const normalized = {
+    artist: artist ? normalize(artist) : undefined,
+    track: normalize(track)
+  };
+  
+  if (blockedTracks.some(t => {
+    if (t.track !== normalized.track) return false;
+    if (t.artist === undefined) return true;
+    return normalized.artist !== undefined && t.artist === normalized.artist;
+  })) {
+    return { success: false, message: 'This song is already blocked' };
+  }
+  
+  blockedTracks.push(normalized);
+  store.set('blocked_tracks', sanitizeBlockedTracks(blockedTracks));
+  updateMenu();
+  return { success: true };
+});
+
+ipcMain.handle('blocklist:block-artist', async (event, artist) => {
+  const blockedArtists = sanitizeBlockedList(store.get('blocked_artists', []));
+  const normalizedArtist = normalize(artist);
+  
+  if (blockedArtists.some(a => normalize(a) === normalizedArtist)) {
+    return { success: false, message: 'This artist is already blocked' };
+  }
+  
+  blockedArtists.push(artist);
+  store.set('blocked_artists', sanitizeBlockedList(blockedArtists));
+  updateMenu();
+  return { success: true };
+});
+
+// Open external URL handler
+ipcMain.handle('open-external', async (event, url) => {
+  await shell.openExternal(url);
 });
 
 // App lifecycle

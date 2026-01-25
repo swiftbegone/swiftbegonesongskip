@@ -69,6 +69,21 @@ function sanitizeBlockedTracks(list) {
 }
 
 /**
+ * Sanitizes a blocked patterns array
+ * @param {Array<string>} list - Array of pattern strings
+ * @returns {Array<string>} - Sanitized array
+ */
+function sanitizeBlockedPatterns(list) {
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  const normalized = list
+    .map(pattern => typeof pattern === 'string' ? pattern.trim() : '')
+    .filter(pattern => pattern.length > 0);
+  return [...new Set(normalized)]; // Remove duplicates
+}
+
+/**
  * Checks if an artist name matches any entry in the blocked list
  * Uses case-insensitive, trimmed exact match
  * @param {string} artistName - The artist name to check
@@ -131,20 +146,85 @@ function isBlockedTrack(artistName, trackName, blockedTracks) {
 }
 
 /**
+ * Matches a pattern against a string (simple glob-like matching)
+ * Supports: "*word", "word*", "*word*", case-insensitive
+ * @param {string} pattern - Pattern to match (e.g., "*live", "*acoustic")
+ * @param {string} text - Text to match against
+ * @returns {boolean} - True if pattern matches
+ */
+function matchPattern(pattern, text) {
+  if (!pattern || !text) return false;
+  
+  const normalizedPattern = normalize(pattern);
+  const normalizedText = normalize(text);
+  
+  // Remove asterisks and check if pattern is contained
+  const cleanPattern = normalizedPattern.replace(/\*/g, '');
+  if (cleanPattern.length === 0) return false;
+  
+  if (normalizedPattern.startsWith('*') && normalizedPattern.endsWith('*')) {
+    // *word* - contains
+    return normalizedText.includes(cleanPattern);
+  } else if (normalizedPattern.startsWith('*')) {
+    // *word - ends with
+    return normalizedText.endsWith(cleanPattern);
+  } else if (normalizedPattern.endsWith('*')) {
+    // word* - starts with
+    return normalizedText.startsWith(cleanPattern);
+  } else {
+    // exact match
+    return normalizedText === normalizedPattern;
+  }
+}
+
+/**
+ * Checks if any artist in a list contains a blocked artist (for collaborations)
+ * @param {Array<string>} artistNames - Array of artist names
+ * @param {Array<string>} blockedArtists - Array of blocked artist names
+ * @returns {boolean} - True if any collaboration is blocked
+ */
+function isCollaborationBlocked(artistNames, blockedArtists) {
+  if (!Array.isArray(artistNames) || !Array.isArray(blockedArtists)) {
+    return false;
+  }
+  
+  const normalizedBlocked = blockedArtists.map(normalize);
+  
+  return artistNames.some(artistName => {
+    const normalizedArtist = normalize(artistName);
+    // Check if any blocked artist is contained in this artist name
+    // (e.g., "Taylor Swift feat. Ed Sheeran" contains "Taylor Swift")
+    return normalizedBlocked.some(blocked => normalizedArtist.includes(blocked));
+  });
+}
+
+/**
  * Checks if a playing track should be blocked
- * Priority: track-level blocks > artist-level blocks
- * Tracks without artist match any artist
+ * Priority: reverse mode > track-level blocks > pattern blocks > artist-level blocks
  * @param {string|Array<string>} artistNames - Single artist name or array of artist names
  * @param {string} trackName - The track name
- * @param {Array<string>} blockedArtists - Array of blocked artist names
+ * @param {Array<string>} blockedArtists - Array of blocked/allowed artist names
  * @param {Array<{artist?: string, track: string}>} blockedTracks - Array of blocked tracks
- * @returns {{blocked: boolean, reason: "track" | "artist" | null}} - Block status and reason
+ * @param {Array<string>} blockedPatterns - Array of blocked patterns
+ * @param {boolean} reverseMode - If true, blockedArtists becomes allowed list
+ * @param {boolean} blockCollaborations - If true, check collaborations
+ * @returns {{blocked: boolean, reason: "artist" | "track" | "pattern" | "reverse" | null}} - Block status and reason
  */
-function isBlocked(artistNames, trackName, blockedArtists, blockedTracks) {
+function isBlocked(artistNames, trackName, blockedArtists, blockedTracks, blockedPatterns = [], reverseMode = false, blockCollaborations = false) {
   const artistArray = Array.isArray(artistNames) ? artistNames : [artistNames];
   
-  // Check track-level blocks first (takes priority)
-  // isBlockedTrack handles tracks without artists (they match any artist)
+  // 1) REVERSE MODE (whitelist-only) - highest priority
+  if (reverseMode) {
+    // In reverse mode, blocked_artists becomes the allowed list
+    // If artist is NOT in allowed list, block it
+    if (!isAnyArtistBlocked(artistArray, blockedArtists)) {
+      return { blocked: true, reason: 'reverse' };
+    }
+    // If we're in reverse mode and artist IS allowed, continue to check other rules
+    // (patterns and tracks can still block even allowed artists)
+  }
+  
+  // 2) TRACK-LEVEL BLOCKS
   for (const artistName of artistArray) {
     if (isBlockedTrack(artistName, trackName, blockedTracks)) {
       return { blocked: true, reason: 'track' };
@@ -152,7 +232,6 @@ function isBlocked(artistNames, trackName, blockedArtists, blockedTracks) {
   }
   
   // Also check track name directly (handles case where artistArray might be empty/null)
-  // A track without artist matches any artist
   const normalizedTrack = normalize(trackName);
   if (blockedTracks.some(blocked => 
     blocked.track === normalizedTrack && blocked.artist === undefined
@@ -160,9 +239,25 @@ function isBlocked(artistNames, trackName, blockedArtists, blockedTracks) {
     return { blocked: true, reason: 'track' };
   }
   
-  // Check artist-level blocks
+  // 3) PATTERN MATCHING
+  if (Array.isArray(blockedPatterns) && blockedPatterns.length > 0) {
+    for (const pattern of blockedPatterns) {
+      if (matchPattern(pattern, trackName)) {
+        return { blocked: true, reason: 'pattern' };
+      }
+    }
+  }
+  
+  // 4) ARTIST-LEVEL BLOCKS
   if (isAnyArtistBlocked(artistArray, blockedArtists)) {
     return { blocked: true, reason: 'artist' };
+  }
+  
+  // 5) COLLABORATION BLOCKS (if enabled)
+  if (blockCollaborations && !reverseMode) {
+    if (isCollaborationBlocked(artistArray, blockedArtists)) {
+      return { blocked: true, reason: 'artist' };
+    }
   }
   
   return { blocked: false, reason: null };
@@ -173,8 +268,11 @@ module.exports = {
   normalizeName, // For backwards compatibility
   sanitizeBlockedList,
   sanitizeBlockedTracks,
+  sanitizeBlockedPatterns,
   isBlockedArtist,
   isAnyArtistBlocked,
   isBlockedTrack,
+  matchPattern,
+  isCollaborationBlocked,
   isBlocked
 };

@@ -12,7 +12,19 @@ It works across major players and browser services (via an upcoming extension), 
 	•	🎵 Automatically skip blocked artists and songs
 Default blocklist: ["Taylor Swift"] — fully customizable via settings.
 	•	⚙️ Edit Blocklist… settings window
-Add/remove blocked artists and individual songs. Supports "Block Current Song" and "Block Current Artist" for quick additions (requires Apple Music playing on macOS).
+Add/remove blocked artists, individual songs, and patterns. Supports "Block Current Song" and "Block Current Artist" for quick additions (requires Apple Music playing on macOS).
+	•	📊 Block counters and statistics
+Track session and all-time statistics for blocked songs by reason (artist, track, pattern, reverse mode).
+	•	📜 Song history (last 10 tracks)
+View and block songs directly from your recent listening history.
+	•	🎯 Pattern blocking
+Block songs matching patterns like "*Live", "*Acoustic", "*Remix" (case-insensitive).
+	•	👥 Collaboration blocking
+Optionally block songs where blocked artists appear in collaborations (e.g., "Taylor Swift feat. Ed Sheeran").
+	•	🔄 Reverse mode (whitelist-only)
+Block everything except allowed artists — perfect for creating a curated playlist experience.
+	•	💾 Export/Import blocklist
+Backup and restore your blocklist settings as JSON files.
 	•	🟢 Spotify support (macOS + Windows) — ⚠️ Temporarily Unavailable
 Spotify has temporarily halted new app registrations in their developer portal. Support will be restored once registrations reopen. Existing connected accounts will continue to work.
 	•	🍎 Apple Music support (macOS)
@@ -142,23 +154,48 @@ Default blocklist (stored locally via electron-store):
 
 Artists: ["Taylor Swift"]
 Songs: []
+Patterns: []
+Block Collaborations: false
+Reverse Mode: false
 
-Matching rules:
+Matching rules (priority order):
+	1.	Reverse mode (whitelist-only): If enabled, only artists in the allowed list are permitted. All others are blocked.
+	2.	Track-level blocks: Exact match against specific song (artist + track). Takes priority over artist-level blocks.
+	3.	Pattern matching: Simple glob-like patterns (e.g., "*Live", "*Acoustic", "*Remix") match against track names (case-insensitive).
+	4.	Artist-level blocks: Exact match against artist name.
+	5.	Collaboration blocking: If enabled, blocks songs where any artist in the track contains a blocked artist (e.g., "Taylor Swift feat. Ed Sheeran").
+
+Matching details:
 	•	case-insensitive
 	•	trimmed and normalized (collapsed whitespace)
-	•	exact match against artist name OR specific song (artist + track)
-	•	Track-level blocks take priority over artist-level blocks
+	•	exact match for artists and tracks
+	•	pattern matching supports: "*word", "word*", "*word*"
 
 Editing the blocklist:
 	•	Right-click the tray/menu bar icon
 	•	Select "Edit Blocklist…"
-	•	Add/remove blocked artists and songs
+	•	Add/remove blocked artists, songs, and patterns
 	•	Use "Block Current Song" to quickly block what's playing (requires Apple Music on macOS)
 	•	Use "Block Current Artist" to block the artist of the current song
+	•	Block songs directly from the history list
+	•	Toggle "Also block collaborations" to block songs with blocked artists in collaborations
+	•	Toggle "Reverse mode" to enable whitelist-only mode
 
-Future versions may include:
-	•	wildcard matching
-	•	multiple profiles
+Statistics:
+	•	View session and all-time block counts by reason (artist, track, pattern, reverse)
+	•	Reset session stats or all-time stats independently
+	•	Counters update in real-time in the tray menu
+
+History:
+	•	View last 10 played songs
+	•	Block songs or artists directly from history
+	•	See which songs were blocked and why
+	•	Clear history at any time
+
+Export/Import:
+	•	Export your complete blocklist (artists, songs, patterns, settings) as JSON
+	•	Import blocklist from JSON file (replaces current settings)
+	•	Useful for backup, sharing, or migrating between devices
 
 ⸻
 
