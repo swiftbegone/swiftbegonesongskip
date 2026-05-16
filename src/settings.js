@@ -60,6 +60,7 @@ const resetTotalBtn = document.getElementById('reset-total-btn');
 
 // DOM elements - Settings
 const githubLink = document.getElementById('github-link');
+const releasesLink = document.getElementById('releases-link');
 const donateLink = document.getElementById('donate-link');
 const helpLink = document.getElementById('help-link');
 
@@ -772,6 +773,13 @@ if (githubLink) {
   githubLink.addEventListener('click', (e) => {
     e.preventDefault();
     window.blocklistAPI.openExternal('https://github.com/swiftbegone/swiftbegonesongskip');
+  });
+}
+
+if (releasesLink) {
+  releasesLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    window.blocklistAPI.openExternal('https://github.com/swiftbegone/swiftbegonesongskip/releases');
   });
 }
 

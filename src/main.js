@@ -13,6 +13,7 @@ const { isBlocked, sanitizeBlockedList, sanitizeBlockedTracks, sanitizeBlockedPa
 const crypto = require('crypto');
 
 const store = new Store();
+const RELEASES_URL = 'https://github.com/swiftbegone/swiftbegonesongskip/releases';
 
 console.log("SwiftBeGone starting…", process.platform);
 
@@ -240,6 +241,12 @@ function createMenu() {
       label: 'Dashboard…',
       click: () => {
         openSettingsWindow();
+      }
+    },
+    {
+      label: 'Check for Updates…',
+      click: () => {
+        shell.openExternal(RELEASES_URL);
       }
     },
     {

@@ -93,6 +93,8 @@ If permission was denied, enable it manually:
 5. Play music in Apple Music.
 6. When a blocked match is detected, SwiftBeGone skips to the next track.
 
+To update SwiftBeGone, open the menu-bar icon and choose `Check for Updates...`, or open `Settings` and click `Updates`. This opens the GitHub Releases page where the newest installer can be downloaded.
+
 Default blocklist:
 
 ```json
