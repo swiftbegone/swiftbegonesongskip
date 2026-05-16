@@ -1,261 +1,187 @@
-SwiftBeGone
+# SwiftBeGone
 
-The tiny cross-platform app that automatically skips artists you never want to hear again.
+SwiftBeGone is a lightweight menu-bar/tray app that automatically skips songs from artists, tracks, or patterns you choose to block.
 
-SwiftBeGone is a lightweight tray/menu-bar utility for macOS and Windows that detects the currently playing song and automatically skips tracks by blocked artists — with Taylor Swift blocked by default (you can add more in future versions).
+It runs locally on your computer, does not record audio, and does not send listening data to a server.
 
-It works across major players and browser services (via an upcoming extension), while staying private, local, and easy for anyone to use.
+## Current Status
 
-⸻
+SwiftBeGone is currently best supported on macOS with Apple Music.
 
-✨ Features
-	•	🎵 Automatically skip blocked artists and songs
-Default blocklist: ["Taylor Swift"] — fully customizable via settings.
-	•	⚙️ Edit Blocklist… settings window
-Add/remove blocked artists, individual songs, and patterns. Supports "Block Current Song" and "Block Current Artist" for quick additions (requires Apple Music playing on macOS).
-	•	📊 Block counters and statistics
-Track session and all-time statistics for blocked songs by reason (artist, track, pattern, reverse mode).
-	•	📜 Song history (last 10 tracks)
-View and block songs directly from your recent listening history.
-	•	🎯 Pattern blocking
-Block songs matching patterns like "*Live", "*Acoustic", "*Remix" (case-insensitive).
-	•	👥 Collaboration blocking
-Optionally block songs where blocked artists appear in collaborations (e.g., "Taylor Swift feat. Ed Sheeran").
-	•	🔄 Reverse mode (whitelist-only)
-Block everything except allowed artists — perfect for creating a curated playlist experience.
-	•	💾 Export/Import blocklist
-Backup and restore your blocklist settings as JSON files.
-	•	🟢 Spotify support (macOS + Windows) — ⚠️ Temporarily Unavailable
-Spotify has temporarily halted new app registrations in their developer portal. Support will be restored once registrations reopen. Existing connected accounts will continue to work.
-	•	🍎 Apple Music support (macOS)
-Detects and controls the Music app using safe AppleScript automation.
-	•	🖥️ Tray-only UI
-Runs quietly in the system tray (Windows) or menu bar (macOS). No big windows.
-	•	🕒 Smart cooldown
-Prevents rapid-fire skipping (only one skip every 2.5 seconds).
-	•	🔌 Upcoming: Browser extension support
-For YouTube Music, Amazon Music, Spotify Web, YouTube, and more.
-	•	🔐 100% private
-No audio recording, no cloud, no telemetry. Everything stays on your device.
+Spotify support exists in the codebase, but new setup is paused for now because Spotify Web API access depends on account/API availability. The app is still being prepared for a public installer release.
 
-⸻
+## Features
 
-🛠️ Installation
+- Automatically skips blocked artists.
+- Blocks individual songs.
+- Blocks song title patterns like `*Live`, `*Acoustic`, and `*Remix`.
+- Supports reverse mode, where only allowed artists can play.
+- Optionally blocks collaborations that include a blocked artist.
+- Tracks session and all-time block counts.
+- Keeps a local recent-song history.
+- Supports blocklist export/import as JSON.
+- Runs from the macOS menu bar or Windows system tray.
+- Stores settings locally with `electron-store`.
 
-Download builds will appear here once the first release is published.
+## Installation
 
-For now (developers):
+### For most users
 
-git clone https://github.com/swiftbegone/swiftbegonesongskip
+Published installers will be available from the GitHub Releases page once the first release is packaged:
+
+https://github.com/swiftbegone/swiftbegonesongskip/releases
+
+Until a release is published, users need to run SwiftBeGone from source.
+
+### Run from source
+
+Requirements:
+
+- Node.js 18 or newer
+- npm
+- macOS for Apple Music support
+
+Install and run:
+
+```bash
+git clone https://github.com/swiftbegone/swiftbegonesongskip.git
 cd swiftbegonesongskip
 npm install
 npm run dev
+```
 
-Build installers:
+SwiftBeGone will appear in the macOS menu bar. It is intentionally hidden from the Dock while running. Open the menu-bar icon and choose `Dashboard...` to manage the blocklist.
 
+### Build local installers
+
+```bash
+npm install
 npm run dist
+```
 
-⸻
+Build output is written to `dist/`.
 
-🔑 Spotify Setup — ⚠️ Temporarily Unavailable
+Notes:
 
-**Update:** Spotify has temporarily halted new app registrations in their developer portal. New users cannot set up Spotify integration at this time.
+- macOS builds may require code signing and notarization before they are smooth to install on other Macs.
+- Unsigned local builds may trigger macOS Gatekeeper warnings.
+- Windows builds are configured through `electron-builder`, but Windows media-session support is not implemented yet.
 
-**For existing users with connected accounts:** Your Spotify integration will continue to work. The app will still detect and skip tracks from Spotify if you're already connected.
+## macOS Apple Music Setup
 
-**When Spotify reopens registrations:** Follow these steps to set up Spotify support:
+No account setup is required.
 
-1. **Create a Spotify App:**
-   - Go to https://developer.spotify.com/dashboard
-   - Log in with your Spotify account
-   - Click "Create app"
-   - Fill in:
-     - App name: `SwiftBeGone` (or any name)
-     - App description: `Auto-skip blocked artists`
-     - Redirect URI: `http://127.0.0.1:24863/callback`
-     - Check "I understand and agree to Spotify's Developer Terms of Service"
-   - Click "Save"
-   - Click "View client secret" and copy both Client ID and Client Secret
+Start Apple Music and play a song. The first time SwiftBeGone tries to read or control Music, macOS may ask for Automation permission:
 
-2. **Configure Credentials:**
-   
-   **Option A: Environment Variables (Recommended for development)**
-   ```bash
-   export SPOTIFY_CLIENT_ID="your_client_id_here"
-   export SPOTIFY_CLIENT_SECRET="your_client_secret_here"
-   npm run dev
-   ```
-   
-   **Option B: Store in electron-store (For built apps)**
-   - The app will prompt you to enter credentials on first run, OR
-   - You can manually set them in the app's config file (location varies by OS)
-   - macOS: `~/Library/Application Support/swiftbegone/config.json`
-   - Windows: `%APPDATA%\swiftbegone\config.json`
+> SwiftBeGone would like to control the Music app.
 
-3. **Connect Spotify:**
-   - Run the app: `npm run dev`
-   - Right-click the tray/menu bar icon
-   - Click "Connect Spotify…"
-   - Approve the permissions in your browser
-   - The app will now automatically skip blocked artists!
+Click `Allow`.
 
-**Note:** The redirect URI must be exactly `http://127.0.0.1:24863/callback` in your Spotify app settings.
+If permission was denied, enable it manually:
 
+1. Open `System Settings`.
+2. Go to `Privacy & Security`.
+3. Open `Automation`.
+4. Allow SwiftBeGone or Electron to control Music.
 
-⸻
+## Using the App
 
-🔧 Platform Support
+1. Launch SwiftBeGone with `npm run dev` or from a future installed app build.
+2. Click the SwiftBeGone icon in the macOS menu bar.
+3. Choose `Dashboard...`.
+4. Add blocked artists, songs, or patterns.
+5. Play music in Apple Music.
+6. When a blocked match is detected, SwiftBeGone skips to the next track.
 
-Feature	macOS	Windows
-Spotify skip	⚠️ (temporarily unavailable)	⚠️ (temporarily unavailable)
-Apple Music skip	✅	❌
-System-wide now-playing	⚠️ (future)	⚠️ (future GSMTC)
-Browser players (YouTube/Spotify Web/Amazon)	🔜 extension	🔜 extension
+Default blocklist:
 
+```json
+{
+  "artists": ["Taylor Swift"],
+  "tracks": [],
+  "patterns": [],
+  "blockCollaborations": false,
+  "reverseMode": false
+}
+```
 
-⸻
+## Blocklist Rules
 
-🔑 Setup Instructions
+Rules are evaluated in this order:
 
-1. Apple Music (macOS) — ✅ Available Now
+1. Reverse mode: if enabled, artists in the artist list are allowed and all other artists are blocked.
+2. Track blocks: exact track match, optionally scoped to an artist.
+3. Pattern blocks: simple title matching with `*word`, `word*`, or `*word*`.
+4. Artist blocks: exact artist match.
+5. Collaboration blocks: optional matching for artist strings that include a blocked artist.
 
-No setup needed.
+Matching is case-insensitive and ignores extra whitespace.
 
-macOS will request permission the first time SwiftBeGone tries to control Apple Music:
+## Development
 
-“SwiftBeGone would like to control the Music app.”
+Common commands:
 
-Click Allow.
+```bash
+npm run dev
+npm run check
+npm test
+npm run dist
+```
 
-⸻
+Project structure:
 
-2. Spotify — ⚠️ Temporarily Unavailable
+```text
+swiftbegonesongskip/
+  src/
+    main.js             Electron main process, tray, polling, IPC
+    appleMusic.js       macOS Apple Music integration
+    spotify.js          Spotify OAuth/API integration
+    oauthServer.js      Local OAuth callback server
+    blocklist.js        Blocklist normalization and matching rules
+    dashboard.html      Dashboard UI
+    settings.js         Dashboard renderer code
+    settingsPreload.js  Secure dashboard IPC bridge
+  tests/
+    blocklist.test.js   Core blocklist behavior tests
+  assets/
+    SwiftBeGone-tray-24.png
+    icon.ico
+    iconTemplate.icns
+  package.json
+```
 
-Spotify has temporarily halted new app registrations in their developer portal. If you already have Spotify connected, it will continue to work. New users should use Apple Music on macOS until Spotify reopens registrations.
+## Platform Support
 
-⸻
+| Feature | macOS | Windows |
+| --- | --- | --- |
+| Apple Music skip | Supported | Not available |
+| Menu bar / tray UI | Supported | Supported by Electron |
+| Spotify skip | Paused | Paused |
+| Browser players | Planned | Planned |
+| System-wide now playing | Planned | Planned |
 
-🧩 How It Works
+## Privacy
 
-SwiftBeGone uses a set of "providers" to detect what you're listening to:
-	1.	SpotifyProvider → Spotify Web API (⚠️ temporarily unavailable for new users)
-	2.	AppleMusicProvider → AppleScript (osascript) — ✅ Available on macOS
-	3.	(Planned) BrowserExtensionProvider → Chrome/Edge extension
-	4.	(Planned) WindowsMediaProvider → Windows GSMTC API
+SwiftBeGone runs locally.
 
-Whichever provider is actively playing gets priority.
-If the detected artist is in your blocklist, SwiftBeGone sends a “skip” command.
+- No audio recording.
+- No telemetry.
+- No cloud sync.
+- No external database.
 
-⸻
+Your blocklist and stats are stored on your machine.
 
-📡 Blocklist Behavior
+## Helpful Links
 
-Default blocklist (stored locally via electron-store):
+- Website / setup: https://swiftbegone.xyz
+- GitHub repo: https://github.com/swiftbegone/swiftbegonesongskip
+- Releases: https://github.com/swiftbegone/swiftbegonesongskip/releases
+- Donate: https://buymeacoffee.com/swiftbegone?new=1
 
-Artists: ["Taylor Swift"]
-Songs: []
-Patterns: []
-Block Collaborations: false
-Reverse Mode: false
+## License
 
-Matching rules (priority order):
-	1.	Reverse mode (whitelist-only): If enabled, only artists in the allowed list are permitted. All others are blocked.
-	2.	Track-level blocks: Exact match against specific song (artist + track). Takes priority over artist-level blocks.
-	3.	Pattern matching: Simple glob-like patterns (e.g., "*Live", "*Acoustic", "*Remix") match against track names (case-insensitive).
-	4.	Artist-level blocks: Exact match against artist name.
-	5.	Collaboration blocking: If enabled, blocks songs where any artist in the track contains a blocked artist (e.g., "Taylor Swift feat. Ed Sheeran").
+MIT License. See [LICENSE](LICENSE).
 
-Matching details:
-	•	case-insensitive
-	•	trimmed and normalized (collapsed whitespace)
-	•	exact match for artists and tracks
-	•	pattern matching supports: "*word", "word*", "*word*"
-
-Editing the blocklist:
-	•	Right-click the tray/menu bar icon
-	•	Select "Edit Blocklist…"
-	•	Add/remove blocked artists, songs, and patterns
-	•	Use "Block Current Song" to quickly block what's playing (requires Apple Music on macOS)
-	•	Use "Block Current Artist" to block the artist of the current song
-	•	Block songs directly from the history list
-	•	Toggle "Also block collaborations" to block songs with blocked artists in collaborations
-	•	Toggle "Reverse mode" to enable whitelist-only mode
-
-Statistics:
-	•	View session and all-time block counts by reason (artist, track, pattern, reverse)
-	•	Reset session stats or all-time stats independently
-	•	Counters update in real-time in the tray menu
-
-History:
-	•	View last 10 played songs
-	•	Block songs or artists directly from history
-	•	See which songs were blocked and why
-	•	Clear history at any time
-
-Export/Import:
-	•	Export your complete blocklist (artists, songs, patterns, settings) as JSON
-	•	Import blocklist from JSON file (replaces current settings)
-	•	Useful for backup, sharing, or migrating between devices
-
-⸻
-
-🧱 Project Structure (Simplified)
-
-swiftbegone/
-  ├── src/
-  │   ├── main.js            # Electron main process
-  │   ├── spotify.js         # Spotify OAuth + API
-  │   ├── oauthServer.js     # Local OAuth callback server
-  │   ├── appleMusic.js      # AppleScript integration
-  │   ├── blocklist.js       # Blocklist helpers
-  ├── assets/
-  │   ├── icon.ico           # Windows tray icon
-  │   ├── iconTemplate.png   # macOS template icon
-  ├── package.json
-  ├── README.md
-
-
-⸻
-
-🌐 Helpful Links
-	•	Website / Setup: https://swiftbegone.xyz
-	•	GitHub Repo: https://github.com/swiftbegone/swiftbegonesongskip
-	•	Donate (Buy Me a Coffee): https://buymeacoffee.com/swiftbegone?new=1
-	•	Browser Extension (coming soon): https://swiftbegone.xyz/#extension
-
-⸻
-
-❤️ Support the Project
-
-If SwiftBeGone made your day quieter, consider supporting development:
-
-👉 https://buymeacoffee.com/swiftbegone?new=1
-
-Your donation helps with:
-	•	Code signing certificates
-	•	macOS app notarization
-	•	Browser extension store fees
-	•	Hosting and domain costs
-
-⸻
-
-📄 License
-
-MIT License — see LICENSE￼ for details.
-
-⸻
-
-🤝 Contributing
+## Contributing
 
 Issues, feature requests, and pull requests are welcome.
-If you want to help build the Windows media-session support or the browser extension, open an issue!
-
-⸻
-
-If you want, I can also generate:
-	•	A LICENSE file (MIT)
-	•	A polished SECURITY.md
-	•	A sleek GitHub Pages index.html matching your branding (we started one)
-	•	A “CONTRIBUTING.md” so it looks like a professional open-source project
-
-Just tell me which you want.

@@ -3,7 +3,7 @@
  * Handles tray/menu bar, polling, and automatic skipping
  */
 
-const { app, Tray, Menu, shell, BrowserWindow, ipcMain } = require('electron');
+const { app, Tray, Menu, shell, BrowserWindow, ipcMain, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const Store = require('electron-store');
@@ -96,18 +96,23 @@ let sessionStats = {
 let nowPlaying = null;
 
 /**
- * Gets the icon path based on platform
+ * Gets the tray icon based on platform.
  */
-function getIconPath() {
+function getTrayIcon() {
   if (process.platform === 'darwin') {
-    // macOS - use icon.ico for menu bar
-    const iconPath = path.join(__dirname, '../assets/icon.ico');
-    return fs.existsSync(iconPath) ? iconPath : null;
-  } else {
-    // Windows - use .ico or fallback
-    const iconPath = path.join(__dirname, '../assets/icon.ico');
-    return fs.existsSync(iconPath) ? iconPath : null;
+    const templateIconPath = path.join(__dirname, '../assets/SwiftBeGone-tray-24.png');
+    if (fs.existsSync(templateIconPath)) {
+      const image = nativeImage.createFromPath(templateIconPath).resize({
+        width: 18,
+        height: 18
+      });
+      image.setTemplateImage(true);
+      return image;
+    }
   }
+
+  const iconPath = path.join(__dirname, '../assets/icon.ico');
+  return fs.existsSync(iconPath) ? iconPath : null;
 }
 
 /**
@@ -129,6 +134,61 @@ function formatNowPlayingForTray() {
   const artist = typeof nowPlaying.artist === 'string' ? nowPlaying.artist : nowPlaying.artist.join(', ');
   const track = truncateString(nowPlaying.track, 60);
   return `${truncateString(artist, 30)} — ${track}`;
+}
+
+/**
+ * Formats artist values from providers into a stable display/storage string.
+ */
+function formatArtist(artist) {
+  if (Array.isArray(artist)) {
+    return artist.filter(Boolean).join(', ');
+  }
+  return artist || '';
+}
+
+/**
+ * Returns the best currently playing track from active status or a provider probe.
+ */
+async function getActiveNowPlaying() {
+  if (currentStatus.source !== 'idle' && currentStatus.artist && currentStatus.track) {
+    return {
+      source: currentStatus.source,
+      artist: formatArtist(currentStatus.artist),
+      track: currentStatus.track
+    };
+  }
+
+  if (spotify.isSpotifyConnected()) {
+    try {
+      const spotifyTrack = await spotify.getCurrentlyPlaying();
+      if (spotifyTrack && spotifyTrack.isPlaying) {
+        return {
+          source: 'spotify',
+          artist: formatArtist(spotifyTrack.artists),
+          track: spotifyTrack.track
+        };
+      }
+    } catch (error) {
+      console.error('Failed to get current Spotify track:', error.message);
+    }
+  }
+
+  if (process.platform === 'darwin') {
+    try {
+      const appleTrack = await appleMusic.getCurrentlyPlaying();
+      if (appleTrack && appleTrack.isPlaying) {
+        return {
+          source: 'apple-music',
+          artist: appleTrack.artist,
+          track: appleTrack.track
+        };
+      }
+    } catch (error) {
+      console.error('Failed to get current Apple Music track:', error.message);
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -407,6 +467,10 @@ function openSettingsWindow() {
     if (settingsWindow.isMinimized()) {
       settingsWindow.restore();
     }
+    settingsWindow.show();
+    if (process.platform === 'darwin') {
+      app.focus({ steal: true });
+    }
     settingsWindow.focus();
     return;
   }
@@ -430,6 +494,10 @@ function openSettingsWindow() {
   
   settingsWindow.once('ready-to-show', () => {
     settingsWindow.show();
+    if (process.platform === 'darwin') {
+      app.focus({ steal: true });
+    }
+    settingsWindow.focus();
   });
   
   settingsWindow.on('closed', () => {
@@ -630,9 +698,9 @@ async function pollNowPlaying() {
  */
 function createTray() {
   console.log("Creating tray…");
-  const iconPath = getIconPath();
+  const icon = getTrayIcon();
   
-  tray = new Tray(iconPath || path.join(__dirname, '../assets/icon.ico'));
+  tray = new Tray(icon || path.join(__dirname, '../assets/icon.ico'));
   
   tray.setToolTip('SwiftBeGone');
   tray.setContextMenu(createMenu());
@@ -731,14 +799,9 @@ ipcMain.handle('blocklist:set-reverse-mode', async (event, enabled) => {
 });
 
 ipcMain.handle('blocklist:block-current-song', async () => {
-  // Get currently playing track from Apple Music (Spotify ignored for now)
-  if (process.platform !== 'darwin') {
-    return { success: false, message: 'Apple Music is only available on macOS' };
-  }
-  
   try {
-    const appleTrack = await appleMusic.getCurrentlyPlaying();
-    if (!appleTrack || !appleTrack.isPlaying) {
+    const activeTrack = await getActiveNowPlaying();
+    if (!activeTrack || !activeTrack.track) {
       return { success: false, message: 'No music is currently playing' };
     }
     
@@ -746,8 +809,8 @@ ipcMain.handle('blocklist:block-current-song', async () => {
     
     // Normalize the track for comparison
     const normalized = {
-      artist: normalize(appleTrack.artist),
-      track: normalize(appleTrack.track)
+      artist: activeTrack.artist ? normalize(activeTrack.artist) : undefined,
+      track: normalize(activeTrack.track)
     };
     
     // Check if already blocked (including tracks without artist)
@@ -769,7 +832,7 @@ ipcMain.handle('blocklist:block-current-song', async () => {
     
     return { 
       success: true, 
-      message: `${appleTrack.artist} — ${appleTrack.track}` 
+      message: `${activeTrack.artist || 'Unknown Artist'} — ${activeTrack.track}` 
     };
   } catch (error) {
     console.error('Failed to block current song:', error);
@@ -778,19 +841,14 @@ ipcMain.handle('blocklist:block-current-song', async () => {
 });
 
 ipcMain.handle('blocklist:block-current-artist', async () => {
-  // Get currently playing track from Apple Music (Spotify ignored for now)
-  if (process.platform !== 'darwin') {
-    return { success: false, message: 'Apple Music is only available on macOS' };
-  }
-  
   try {
-    const appleTrack = await appleMusic.getCurrentlyPlaying();
-    if (!appleTrack || !appleTrack.isPlaying) {
+    const activeTrack = await getActiveNowPlaying();
+    if (!activeTrack || !activeTrack.artist) {
       return { success: false, message: 'No music is currently playing' };
     }
     
     const blockedArtists = sanitizeBlockedList(store.get('blocked_artists', []));
-    const artistName = appleTrack.artist;
+    const artistName = activeTrack.artist;
     const normalizedArtist = normalize(artistName);
     
     // Check if already blocked (compare normalized)
@@ -813,26 +871,14 @@ ipcMain.handle('blocklist:block-current-artist', async () => {
 });
 
 ipcMain.handle('blocklist:get-now-playing', async () => {
-  // Try Apple Music first (Spotify ignored for now)
-  if (process.platform === 'darwin') {
-    try {
-      const appleTrack = await appleMusic.getCurrentlyPlaying();
-      if (appleTrack && appleTrack.isPlaying) {
-        return {
-          artist: appleTrack.artist,
-          track: appleTrack.track,
-          source: 'apple-music'
-        };
-      }
-    } catch (error) {
-      // Ignore errors, try other sources
-    }
+  const activeTrack = await getActiveNowPlaying();
+  if (activeTrack) {
+    return activeTrack;
   }
-  
-  // Fall back to currentStatus if available
+
   if (currentStatus.artist && currentStatus.track) {
     return {
-      artist: currentStatus.artist,
+      artist: formatArtist(currentStatus.artist),
       track: currentStatus.track,
       source: currentStatus.source
     };
@@ -1048,6 +1094,9 @@ ipcMain.handle('open-external', async (event, url) => {
 // App lifecycle
 app.whenReady().then(() => {
   console.log("App ready, initializing…");
+  if (process.platform === 'darwin') {
+    app.dock.hide();
+  }
   createTray();
   startPolling();
   

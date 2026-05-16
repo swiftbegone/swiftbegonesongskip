@@ -5,6 +5,8 @@
   "main": "src/main.js",
   "scripts": {
     "dev": "electron .",
+    "check": "for f in src/*.js tests/*.js; do node --check \"$f\"; done",
+    "test": "node --test",
     "dist": "electron-builder"
   },
   "keywords": [

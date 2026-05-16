@@ -249,7 +249,9 @@ function isBlocked(artistNames, trackName, blockedArtists, blockedTracks, blocke
   }
   
   // 4) ARTIST-LEVEL BLOCKS
-  if (isAnyArtistBlocked(artistArray, blockedArtists)) {
+  // In reverse mode, blockedArtists is an allowlist, so allowed artists should
+  // not be blocked again by the normal artist-level rule.
+  if (!reverseMode && isAnyArtistBlocked(artistArray, blockedArtists)) {
     return { blocked: true, reason: 'artist' };
   }
   
